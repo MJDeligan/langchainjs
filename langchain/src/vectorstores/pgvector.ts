@@ -129,12 +129,13 @@ export class PGVectorStore extends VectorStore {
    * @param documents - Array of `Document` instances.
    * @returns Promise that resolves when the documents have been added.
    */
-  async addDocuments(documents: Document[]): Promise<void> {
+  async addDocuments(documents: Document[], ids?: string[]): Promise<void> {
     const texts = documents.map(({ pageContent }) => pageContent);
 
     return this.addVectors(
       await this.embeddings.embedDocuments(texts),
-      documents
+      documents,
+      ids
     );
   }
 
@@ -219,13 +220,18 @@ export class PGVectorStore extends VectorStore {
       columns.push("collection_id");
     }
 
+    // Check if we have added ids to the rows.
+    if (rows.length !== 0 && rows[0].length === columns.length - 1) {
+      columns.push(this.idColumnName);
+    }
+
     const valuesPlaceholders = rows
       .map((_, j) => this.generatePlaceholderForRowAt(j, columns.length))
       .join(", ");
 
     const text = `
       INSERT INTO ${this.tableName}(
-        ${columns}
+        ${columns.map((column) => `"${column}"`).join(", ")}
       )
       VALUES ${valuesPlaceholders}
     `;
@@ -240,7 +246,18 @@ export class PGVectorStore extends VectorStore {
    * @param documents - Array of `Document` instances.
    * @returns Promise that resolves when the vectors have been added.
    */
-  async addVectors(vectors: number[][], documents: Document[]): Promise<void> {
+  async addVectors(
+    vectors: number[][],
+    documents: Document[],
+    ids?: string[]
+  ): Promise<void> {
+    // Either all documents have ids or none of them do to avoid confusion.
+    if (ids && ids.length !== vectors.length) {
+      throw new Error(
+        "The number of ids must match the number of vectors provided."
+      );
+    }
+
     const rows = [];
     let collectionId;
     if (this.collectionTableName) {
@@ -258,6 +275,9 @@ export class PGVectorStore extends VectorStore {
       );
       if (collectionId) {
         values.push(collectionId);
+      }
+      if (ids) {
+        values.push(ids[i]);
       }
       rows.push(values);
     }
@@ -303,9 +323,9 @@ export class PGVectorStore extends VectorStore {
     }
 
     const queryString = `
-      SELECT *, ${this.vectorColumnName} <=> $1 as "_distance"
+      SELECT *, "${this.vectorColumnName}" <=> $1 as "_distance"
       FROM ${this.tableName}
-      WHERE ${this.metadataColumnName}::jsonb @> $2
+      WHERE "${this.metadataColumnName}"::jsonb @> $2
       ${collectionId ? "AND collection_id = $4" : ""}
       ORDER BY "_distance" ASC
       LIMIT $3;
@@ -393,7 +413,8 @@ export class PGVectorStore extends VectorStore {
     texts: string[],
     metadatas: object[] | object,
     embeddings: Embeddings,
-    dbConfig: PGVectorStoreArgs
+    dbConfig: PGVectorStoreArgs,
+    ids?: string[]
   ): Promise<PGVectorStore> {
     const docs = [];
     for (let i = 0; i < texts.length; i += 1) {
@@ -405,7 +426,7 @@ export class PGVectorStore extends VectorStore {
       docs.push(newDoc);
     }
 
-    return PGVectorStore.fromDocuments(docs, embeddings, dbConfig);
+    return PGVectorStore.fromDocuments(docs, embeddings, dbConfig, ids);
   }
 
   /**
@@ -420,10 +441,11 @@ export class PGVectorStore extends VectorStore {
   static async fromDocuments(
     docs: Document[],
     embeddings: Embeddings,
-    dbConfig: PGVectorStoreArgs
+    dbConfig: PGVectorStoreArgs,
+    ids?: string[]
   ): Promise<PGVectorStore> {
     const instance = await PGVectorStore.initialize(embeddings, dbConfig);
-    await instance.addDocuments(docs);
+    await instance.addDocuments(docs, ids);
 
     return instance;
   }
