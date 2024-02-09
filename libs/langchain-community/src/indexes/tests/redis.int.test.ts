@@ -24,6 +24,7 @@ describe("RedisRecordManager", () => {
   });
 
   afterAll(async () => {
+    await recordManager.client.ft.dropIndex(indexName, { DD: true });
     await recordManager.end();
   });
 
