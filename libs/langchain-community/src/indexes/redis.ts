@@ -117,6 +117,10 @@ export class RedisRecordManager extends RecordManager {
    * @returns An array of booleans indicating if the keys exist.
    */
   async exists(keys: string[]): Promise<boolean[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+
     const command = this.client.multi();
     keys.reduce(
       (command, key) => command.exists(`${this.namespace}:${key}`),
@@ -149,6 +153,10 @@ export class RedisRecordManager extends RecordManager {
    * @param keys The keys to delete.
    */
   async deleteKeys(keys: string[]): Promise<void> {
+    if (keys.length === 0) {
+      return;
+    }
+
     const command = this.client.multi();
     await command.del(keys.map((key) => `${this.namespace}:${key}`)).exec();
   }
