@@ -173,4 +173,13 @@ describe("RedisRecordManager", () => {
     const readKeys = await recordManager.listKeys({ groupIds: ["group1"] });
     expect(readKeys).toEqual(["a", "b"]);
   });
+
+  test("Handles more than 100 keys", async () => {
+    // The default redis search result limit is 10, so this test ensures that
+    // the listKeys function can handle pagination
+    const keys = Array.from({ length: 101 }, (_, i) => i.toString());
+    await recordManager.update(keys);
+    const readKeys = await recordManager.listKeys();
+    expect(readKeys).toEqual(expect.arrayContaining(keys));
+  });
 });
