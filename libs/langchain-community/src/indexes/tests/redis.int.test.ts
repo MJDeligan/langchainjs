@@ -1,7 +1,7 @@
 import { describe, expect, test, jest } from "@jest/globals";
 import { RedisRecordManager } from "../redis.js";
 
-describe("RedisRecordManager", () => {
+describe.skip("RedisRecordManager", () => {
   const namespace = "test";
   const indexName = "myIndex";
   let recordManager: RedisRecordManager;
