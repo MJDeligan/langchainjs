@@ -57,27 +57,18 @@ export class RedisRecordManager extends RecordManager {
   }
 
   /**
-   * Sets up the record manager by
+   * Sets up the record manager by connecting to the Redis server and creating the index.
    */
   async createSchema(): Promise<void> {
     await this.connectClient();
     await this.createIndex();
   }
 
-  /**
-   * Gets the current time from the Redis server.
-   * @returns The current time in milliseconds.
-   */
   async getTime(): Promise<number> {
     const time = await this.client.TIME();
     return time.getTime() + (time.microseconds % 1000) / 1000;
   }
 
-  /**
-   * Updates the keys in the database.
-   * @param keys The keys to update.
-   * @param updateOptions The options to update the keys with.
-   */
   async update(
     keys: string[],
     updateOptions?: UpdateOptions | undefined
@@ -115,11 +106,6 @@ export class RedisRecordManager extends RecordManager {
     await command.exec();
   }
 
-  /**
-   * Checks if the keys exist in the database.
-   * @param keys The keys to check.
-   * @returns An array of booleans indicating if the keys exist.
-   */
   async exists(keys: string[]): Promise<boolean[]> {
     if (keys.length === 0) {
       return [];
@@ -134,15 +120,11 @@ export class RedisRecordManager extends RecordManager {
     return exists.map((result) => result === 1);
   }
 
-  /**
-   * Lists the keys in the database based on the provided options.
-   * @param options The options to filter the keys by.
-   * @returns The keys that match the options.
-   */
   async listKeys(options?: ListKeyOptions): Promise<string[]> {
     let hasMore = true;
     const { limit: initialLimit = Number.POSITIVE_INFINITY } = options ?? {};
     let results: string[] = [];
+
     // Redis search has a configurable limit of search results
     // so we need to paginate through the results if there are more than that limit.
     while (hasMore) {
@@ -163,10 +145,6 @@ export class RedisRecordManager extends RecordManager {
     return results;
   }
 
-  /**
-   * Deletes the keys from the database.
-   * @param keys The keys to delete.
-   */
   async deleteKeys(keys: string[]): Promise<void> {
     if (keys.length === 0) {
       return;
@@ -240,7 +218,7 @@ export class RedisRecordManager extends RecordManager {
 
   /**
    * Builds a search query that searches for keys with a given updatedAt timestamp and groupIds.
-   * @param options
+   * @param {QueryOptions} options
    * @returns A tuple with the first element being the search query and the second element being the search options.
    */
   private buildSearchQuery(options: QueryOptions): [string, SearchOptions] {
