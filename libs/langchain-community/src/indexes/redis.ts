@@ -37,8 +37,8 @@ export class RedisRecordManager extends RecordManager {
 
   /**
    * Creates a new RedisRecordManager.
-   * @param namespace The namespace to use for the keys.
-   * @param config The configuration options for the record manager.
+   * @param {string} namespace The namespace to use for the keys.
+   * @param {RedisRecordManagerOptions} config The configuration options for the record manager.
    * @throws If neither `redisClientOptions` nor `redisClient` is provided.
    *
    * If both `redisClientOptions` and `redisClient` are provided, the existing client will be used.
