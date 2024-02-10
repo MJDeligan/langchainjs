@@ -22,6 +22,10 @@ export interface RedisRecordManagerOptions {
    * Either this or `redisClientOptions` must be provided.
    */
   redisClient?: ReturnType<typeof createClient>;
+  /**
+   * The maximum number of search results that redis returns in a single query. Defaults to 1000.
+   */
+  maxSearchResults?: number;
 }
 
 type QueryOptions = ListKeyOptions & { limit: number; offset: number };
@@ -45,7 +49,8 @@ export class RedisRecordManager extends RecordManager {
    */
   constructor(namespace: string, config: RedisRecordManagerOptions) {
     super();
-    const { indexName, redisClientOptions, redisClient } = config;
+    const { indexName, redisClientOptions, redisClient, maxSearchResults } =
+      config;
     if (!redisClientOptions && !redisClient) {
       throw new Error(
         "Either redisClientOptions or redisClient must be provided."
@@ -54,6 +59,7 @@ export class RedisRecordManager extends RecordManager {
     this.namespace = namespace;
     this.indexName = indexName ?? this.indexName;
     this.client = redisClient ?? createClient(redisClientOptions);
+    this.searchBatchSize = maxSearchResults ?? this.searchBatchSize;
   }
 
   /**
@@ -125,7 +131,7 @@ export class RedisRecordManager extends RecordManager {
     const { limit: initialLimit = Number.POSITIVE_INFINITY } = options ?? {};
     const results: string[] = [];
 
-    // Redis search has a configurable limit of search results
+    // Redis search has a limit of search results
     // so we need to paginate through the results if there are more than that limit.
     // If no limit is provided to the function, we default to infinity. This just means that 'hasMore'
     // will only be false when there are no more results. This is not atomic, but should
