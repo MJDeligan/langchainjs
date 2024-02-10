@@ -24,7 +24,11 @@ export interface RedisRecordManagerOptions {
   redisClient?: ReturnType<typeof createClient>;
 }
 
+type QueryOptions = ListKeyOptions & { limit: number; offset: number };
+
 export class RedisRecordManager extends RecordManager {
+  private searchBatchSize = 1000;
+
   namespace: string;
 
   client: ReturnType<typeof createClient>;
@@ -121,10 +125,9 @@ export class RedisRecordManager extends RecordManager {
       return [];
     }
 
-    const command = this.client.multi();
-    keys.reduce(
+    const command = keys.reduce(
       (command, key) => command.exists(`${this.namespace}:${key}`),
-      command
+      this.client.multi()
     );
 
     const exists = await command.exec();
@@ -137,15 +140,27 @@ export class RedisRecordManager extends RecordManager {
    * @returns The keys that match the options.
    */
   async listKeys(options?: ListKeyOptions): Promise<string[]> {
-    const result = await this.client.ft.search(
-      this.indexName,
-      ...this.buildSearchQuery(options)
-    );
-    if (!result.total) {
-      return [];
+    let hasMore = true;
+    const { limit: initialLimit = Number.POSITIVE_INFINITY } = options ?? {};
+    let results: string[] = [];
+    // Redis search has a configurable limit of search results
+    // so we need to paginate through the results if there are more than that limit.
+    while (hasMore) {
+      const currentLimit = initialLimit - results.length;
+      const result = await this.client.ft.search(
+        this.indexName,
+        ...this.buildSearchQuery({
+          ...options,
+          limit: currentLimit,
+          offset: results.length,
+        })
+      );
+      hasMore =
+        result.documents.length !== 0 && result.documents.length < currentLimit; // there are still results returned, and we have not reached the limit
+      results = results.concat(this.extractKeys(result.documents));
     }
-    // Remove the namespace from the keys.
-    return result.documents.map(({ id }) => id.split(":").slice(1).join(":"));
+
+    return results;
   }
 
   /**
@@ -228,18 +243,23 @@ export class RedisRecordManager extends RecordManager {
    * @param options
    * @returns A tuple with the first element being the search query and the second element being the search options.
    */
-  private buildSearchQuery(options?: ListKeyOptions): [string, SearchOptions] {
-    const { before, after, limit, groupIds } = options ?? {};
-    const searchOptions = limit ? { LIMIT: { from: 0, size: limit } } : {};
-    const updatedAtSearchQuery = `@updatedAt:[(${after ?? 0} (${
-      before ?? "inf"
-    }] `;
+  private buildSearchQuery(options: QueryOptions): [string, SearchOptions] {
+    const { before, after, limit: _limit, groupIds, offset } = options;
+    const limit = Number.isFinite(_limit) ? _limit : this.searchBatchSize; // default to batch size if limit is not provided
+    const searchOptions = { LIMIT: { from: offset, size: limit } };
+    const updatedAtSearchQuery = `
+      @updatedAt:[(${after ?? 0} (${before ?? "inf"}]
+    `;
     const groupIdSearchQuery =
       groupIds && groupIds.length
-        ? `@groupId:(${groupIds.filter((id) => id !== null).join(" | ")})`
+        ? ` @groupId:(${groupIds.filter((id) => id !== null).join(" | ")})`
         : "";
     const baseQuery = updatedAtSearchQuery + groupIdSearchQuery;
     return [baseQuery, searchOptions];
+  }
+
+  private extractKeys(documents: { id: string }[]): string[] {
+    return documents.map(({ id }) => id.split(":").slice(-1).join(":"));
   }
 
   _recordManagerType(): string {
