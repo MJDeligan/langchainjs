@@ -175,8 +175,8 @@ describe.skip("RedisRecordManager", () => {
   });
 
   test("Handles more than 100 keys", async () => {
-    // The default redis search result limit is 10, so this test ensures that
-    // the listKeys function can handle pagination
+    // The default redis search returns only 10 documents, so this test ensures that
+    // the listKeys can return more than that.
     const keys = Array.from({ length: 101 }, (_, i) => i.toString());
     await recordManager.update(keys);
     const readKeys = await recordManager.listKeys();
