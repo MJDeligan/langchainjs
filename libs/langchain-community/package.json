@@ -2000,6 +2000,15 @@
       "import": "./indexes/memory.js",
       "require": "./indexes/memory.cjs"
     },
+    "./indexes/redis": {
+      "types": {
+        "import": "./indexes/redis.d.ts",
+        "require": "./indexes/redis.d.cts",
+        "default": "./indexes/redis.d.ts"
+      },
+      "import": "./indexes/redis.js",
+      "require": "./indexes/redis.cjs"
+    },
     "./util/convex": {
       "types": {
         "import": "./util/convex.d.ts",
@@ -2699,6 +2708,10 @@
     "indexes/memory.js",
     "indexes/memory.d.ts",
     "indexes/memory.d.cts",
+    "indexes/redis.cjs",
+    "indexes/redis.js",
+    "indexes/redis.d.ts",
+    "indexes/redis.d.cts",
     "util/convex.cjs",
     "util/convex.js",
     "util/convex.d.ts",

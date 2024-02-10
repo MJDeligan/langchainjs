@@ -9,9 +9,8 @@ function abs(relativePath) {
   return resolve(dirname(fileURLToPath(import.meta.url)), relativePath);
 }
 
-
 export const config = {
-  internals:[
+  internals: [
     /node\:/,
     /@langchain\/core\//,
     "convex",
@@ -209,6 +208,7 @@ export const config = {
     "indexes/base": "indexes/base",
     "indexes/postgres": "indexes/postgres",
     "indexes/memory": "indexes/memory",
+    "indexes/redis": "indexes/redis",
     // utils
     "util/convex": "utils/convex",
     "utils/event_source_parse": "utils/event_source_parse",
@@ -334,10 +334,11 @@ export const config = {
     "util/convex",
     // indexes
     "indexes/postgres",
+    "indexes/redis",
   ],
   packageSuffix: "community",
   tsConfigPath: resolve("./tsconfig.json"),
   cjsSource: "./dist-cjs",
   cjsDestination: "./dist",
   abs,
-}
+};
