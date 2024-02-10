@@ -23,15 +23,17 @@ export interface RedisRecordManagerOptions {
    */
   redisClient?: ReturnType<typeof createClient>;
   /**
-   * The maximum number of search results that redis returns in a single query. Defaults to 1000.
+   * Whether to log a warning message about redis' maximum search results limit. Defaults to true.
    */
-  maxSearchResults?: number;
+  verbose?: boolean;
 }
 
-type QueryOptions = ListKeyOptions & { limit: number; offset: number };
+type QueryOptions = ListKeyOptions;
 
 export class RedisRecordManager extends RecordManager {
-  private searchBatchSize = 1000;
+  maxSearchResults?: number;
+
+  verbose: boolean;
 
   namespace: string;
 
@@ -49,8 +51,12 @@ export class RedisRecordManager extends RecordManager {
    */
   constructor(namespace: string, config: RedisRecordManagerOptions) {
     super();
-    const { indexName, redisClientOptions, redisClient, maxSearchResults } =
-      config;
+    const {
+      indexName,
+      redisClientOptions,
+      redisClient,
+      verbose = true,
+    } = config;
     if (!redisClientOptions && !redisClient) {
       throw new Error(
         "Either redisClientOptions or redisClient must be provided."
@@ -58,8 +64,8 @@ export class RedisRecordManager extends RecordManager {
     }
     this.namespace = namespace;
     this.indexName = indexName ?? this.indexName;
+    this.verbose = verbose;
     this.client = redisClient ?? createClient(redisClientOptions);
-    this.searchBatchSize = maxSearchResults ?? this.searchBatchSize;
   }
 
   /**
@@ -67,6 +73,7 @@ export class RedisRecordManager extends RecordManager {
    */
   async createSchema(): Promise<void> {
     await this.connectClient();
+    await this.setMaxSearchResults();
     await this.createIndex();
   }
 
@@ -127,32 +134,40 @@ export class RedisRecordManager extends RecordManager {
   }
 
   async listKeys(options?: ListKeyOptions): Promise<string[]> {
-    let hasMore = true;
-    const { limit: initialLimit = Number.POSITIVE_INFINITY } = options ?? {};
-    const results: string[] = [];
+    const { limit } = options ?? {};
 
-    // Redis search has a limit of search results
-    // so we need to paginate through the results if there are more than that limit.
-    // If no limit is provided to the function, we default to infinity. This just means that 'hasMore'
-    // will only be false when there are no more results. This is not atomic, but should
-    // be fine for most reasonable use cases.
-    while (hasMore) {
-      const currentLimit = initialLimit - results.length;
+    // Redis search has a limit on the amount of search results it can return.
+    // We cannot use pagination because the offset cannot exceed the maximum search results.
+    try {
       const result = await this.client.ft.search(
         this.indexName,
         ...this.buildSearchQuery({
           ...options,
-          limit: currentLimit,
-          offset: results.length,
+          limit,
         })
       );
-      const numDocs = result.documents.length;
-      // there are still results returned, and we have not reached the limit
-      hasMore = numDocs !== 0 && numDocs < currentLimit;
-      results.push(...this.extractKeys(result.documents));
-    }
+      // if no limit is provided, we throw an error if not all keys could be retrieved
+      if (limit === undefined && result.total > result.documents.length) {
+        throw new Error(
+          `Could not retrieve all keys. The amount of keys exceeds the maximum search results of ${this.maxSearchResults}.
+          See https://redis.io/docs/interact/search-and-query/basic-constructs/configuration-parameters/#maxsearchresults for configuration options`
+        );
+      }
 
-    return results;
+      return this.extractKeys(result.documents);
+    } catch (err) {
+      // If the error is due to the limit exceeding the maximum search results, throw a more informative error.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((err as any).message.includes("LIMIT exceeds maximum")) {
+        throw new Error(
+          `The limit ${
+            limit ?? this.maxSearchResults
+          } exceeds the maximum search results of ${this.maxSearchResults}.
+          See https://redis.io/docs/interact/search-and-query/basic-constructs/configuration-parameters/#maxsearchresults for configuration options`
+        );
+      }
+      throw err;
+    }
   }
 
   async deleteKeys(keys: string[]): Promise<void> {
@@ -227,14 +242,41 @@ export class RedisRecordManager extends RecordManager {
   }
 
   /**
+   * Sets the maximum number of search results we retrieve in a single query.
+   */
+  private async setMaxSearchResults() {
+    const configValue = Number.parseInt(
+      (await this.client.ft.CONFIG_GET("MAXSEARCHRESULTS"))
+        .MAXSEARCHRESULTS as string,
+      10
+    );
+
+    this.maxSearchResults = configValue;
+
+    if (this.verbose) {
+      console.warn(
+        `
+        The maximum number of search results is set to ${configValue}.
+        If you expect to have more than this amount of keys, consider increasing the value of MAXSEARCHRESULTS in the redis configuration.
+        See https://redis.io/docs/interact/search-and-query/basic-constructs/configuration-parameters/#maxsearchresults for configuration options`
+      );
+    }
+  }
+
+  /**
    * Builds a search query that searches for keys with a given updatedAt timestamp and groupIds.
    * @param {QueryOptions} options
    * @returns A tuple with the first element being the search query and the second element being the search options.
    */
   private buildSearchQuery(options: QueryOptions): [string, SearchOptions] {
-    const { before, after, limit: _limit, groupIds, offset } = options;
-    const limit = Number.isFinite(_limit) ? _limit : this.searchBatchSize; // default to batch size if limit is not provided
-    const searchOptions = { LIMIT: { from: offset, size: limit } };
+    const {
+      before,
+      after,
+      limit = this.maxSearchResults as number,
+      groupIds,
+    } = options;
+
+    const searchOptions = { LIMIT: { from: 0, size: limit } };
     const updatedAtSearchQuery = `
       @updatedAt:[(${after ?? 0} (${before ?? "inf"}]
     `;
@@ -242,12 +284,18 @@ export class RedisRecordManager extends RecordManager {
       groupIds && groupIds.length
         ? ` @groupId:(${groupIds.filter((id) => id !== null).join(" | ")})`
         : "";
-    const baseQuery = updatedAtSearchQuery + groupIdSearchQuery;
+    const baseQuery = this.escapeQuery(
+      updatedAtSearchQuery + groupIdSearchQuery
+    );
     return [baseQuery, searchOptions];
   }
 
   private extractKeys(documents: { id: string }[]): string[] {
     return documents.map(({ id }) => id.split(":").slice(-1).join(":"));
+  }
+
+  private escapeQuery(query: string): string {
+    return query.replace("-", "\\-");
   }
 
   _recordManagerType(): string {
