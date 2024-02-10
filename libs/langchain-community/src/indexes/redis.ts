@@ -123,10 +123,13 @@ export class RedisRecordManager extends RecordManager {
   async listKeys(options?: ListKeyOptions): Promise<string[]> {
     let hasMore = true;
     const { limit: initialLimit = Number.POSITIVE_INFINITY } = options ?? {};
-    let results: string[] = [];
+    const results: string[] = [];
 
     // Redis search has a configurable limit of search results
     // so we need to paginate through the results if there are more than that limit.
+    // If no limit is provided to the function, we default to infinity. This just means that 'hasMore'
+    // will only be false when there are no more results. This is not atomic, but should
+    // be fine for most reasonable use cases.
     while (hasMore) {
       const currentLimit = initialLimit - results.length;
       const result = await this.client.ft.search(
@@ -137,9 +140,10 @@ export class RedisRecordManager extends RecordManager {
           offset: results.length,
         })
       );
-      hasMore =
-        result.documents.length !== 0 && result.documents.length < currentLimit; // there are still results returned, and we have not reached the limit
-      results = results.concat(this.extractKeys(result.documents));
+      const numDocs = result.documents.length;
+      // there are still results returned, and we have not reached the limit
+      hasMore = numDocs !== 0 && numDocs < currentLimit;
+      results.push(...this.extractKeys(result.documents));
     }
 
     return results;
